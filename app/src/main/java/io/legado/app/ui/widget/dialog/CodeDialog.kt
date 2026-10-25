@@ -18,7 +18,7 @@ import io.legado.app.utils.viewbindingdelegate.viewBinding
 class CodeDialog() : BaseDialogFragment(R.layout.dialog_code_view) {
 
     /** 全屏弹窗:大浮动形态,圆角+四周留边 */
-    override val dialogForm = DialogForm.FULL_SCREEN
+    override val dialogEdgeInset = true
 
     constructor(code: String, disableEdit: Boolean = true, requestId: String? = null) : this() {
         arguments = Bundle().apply {

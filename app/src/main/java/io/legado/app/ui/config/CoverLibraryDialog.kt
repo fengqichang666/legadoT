@@ -29,7 +29,7 @@ import java.io.FileOutputStream
 class CoverLibraryDialog() : BaseDialogFragment(R.layout.dialog_cover_library),
     CoverLibraryAdapter.CallBack {
 
-    override val dialogForm = DialogForm.FULL_SCREEN
+    override val dialogEdgeInset = true
 
     constructor(isNight: Boolean) : this() {
         arguments = Bundle().apply { putBoolean("isNight", isNight) }

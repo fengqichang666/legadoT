@@ -57,7 +57,7 @@ class ChangeChapterSourceDialog() : BaseDialogFragment(R.layout.dialog_chapter_c
     ChangeChapterTocAdapter.Callback {
 
     /** 全屏弹窗:大浮动形态,圆角+四周留边 */
-    override val dialogForm = DialogForm.FULL_SCREEN
+    override val dialogEdgeInset = true
 
     constructor(name: String, author: String, chapterIndex: Int, chapterTitle: String) : this() {
         arguments = Bundle().apply {

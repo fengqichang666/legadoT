@@ -43,7 +43,7 @@ import kotlinx.coroutines.withContext
 class TextDialog() : BaseDialogFragment(R.layout.dialog_text_view) {
 
     /** 全宽大弹窗(更新日志/帮助/教程/源码查看):大浮动形态,圆角+四周留边 */
-    override val dialogForm = DialogForm.FULL_SCREEN
+    override val dialogEdgeInset = true
 
     enum class Mode {
         MD, HTML, TEXT

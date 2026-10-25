@@ -37,7 +37,7 @@ import io.legado.app.utils.viewbindingdelegate.viewBinding
 class VerificationCodeDialog() : BaseDialogFragment(R.layout.dialog_verification_code_view),
     Toolbar.OnMenuItemClickListener {
 
-    override val dialogForm = BaseDialogFragment.DialogForm.FULL_SCREEN
+    override val dialogEdgeInset = true
 
     constructor(
         imageUrl: String,

@@ -28,7 +28,7 @@ import splitties.views.onClick
 class ImportDictRuleDialog() : BaseDialogFragment(R.layout.dialog_recycler_view),
     CodeDialog.Callback {
 
-    override val dialogForm = BaseDialogFragment.DialogForm.FULL_SCREEN
+    override val dialogEdgeInset = true
 
     constructor(source: String, finishOnDismiss: Boolean = false) : this() {
         arguments = Bundle().apply {

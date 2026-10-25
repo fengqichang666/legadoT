@@ -41,7 +41,7 @@ class SourcePickerDialog : BaseDialogFragment(R.layout.dialog_source_picker),
     Toolbar.OnMenuItemClickListener {
 
     /** 全屏弹窗:大浮动形态,圆角+四周留边 */
-    override val dialogForm = DialogForm.FULL_SCREEN
+    override val dialogEdgeInset = true
 
     private val binding by viewBinding(DialogSourcePickerBinding::bind)
     private val searchView: SearchView by lazy {

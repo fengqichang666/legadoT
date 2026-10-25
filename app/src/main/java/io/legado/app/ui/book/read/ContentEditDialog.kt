@@ -37,7 +37,7 @@ import io.legado.app.data.entities.getDisplayTitle
 class ContentEditDialog : BaseDialogFragment(R.layout.dialog_content_edit) {
 
     /** 全屏弹窗:大浮动形态,圆角+四周留边 */
-    override val dialogForm = DialogForm.FULL_SCREEN
+    override val dialogEdgeInset = true
 
     val binding by viewBinding(DialogContentEditBinding::bind)
     val viewModel by viewModels<ContentEditViewModel>()

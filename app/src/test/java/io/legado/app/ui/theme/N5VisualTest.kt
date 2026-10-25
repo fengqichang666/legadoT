@@ -67,8 +67,16 @@ class N5VisualTest {
         assertTrue("导入弹窗空态应有图标", dlg.contains("@+id/iv_empty"))
     }
 
+    /**
+     * 尺寸归 setLayout、留边归 dialogEdgeInset 的正交契约。
+     *
+     * 只断言「禁止出现」:早期实现把留边耦合在 DialogForm.FULL_SCREEN 里,
+     * 导致 WRAP_CONTENT 高度的导入弹窗被当成全屏弹窗处理。
+     * 新机制(dialogEdgeInset)的存在性由编译器保证(子类 override 即绑定),
+     * 尺寸策略(WRAP_CONTENT/MATCH_PARENT)是设计选择而非不变量,哨兵不冻结。
+     */
     @Test
-    fun `short dialogs adopt full screen form`() {
+    fun `import dialogs no longer couple inset to form`() {
         val families = listOf(
             "ui/association/ImportBookSourceDialog",
             "ui/association/ImportRssSourceDialog",
@@ -83,8 +91,16 @@ class N5VisualTest {
         )
         families.forEach {
             val src = ProjectSources.app("src/main/java/io/legado/app/$it.kt")
-            assertTrue("$it 应 FULL_SCREEN", src.contains("DialogForm.FULL_SCREEN"))
+            assertTrue("$it 不应再用 DialogForm 表达留边", !src.contains("DialogForm.FULL_SCREEN"))
         }
+    }
+
+    /** 跨文件关系:留边触发条件与 dialogForm 无关,模板分支不再区分画法相同的两支。 */
+    @Test
+    fun `base dialog keeps form and inset orthogonal`() {
+        val base = ProjectSources.app("src/main/java/io/legado/app/base/BaseDialogFragment.kt")
+        assertTrue("DialogForm 不应再含 FULL_SCREEN", !base.contains("FULL_SCREEN"))
+        assertTrue("留边不应由 dialogForm 触发", !base.contains("dialogForm == DialogForm.FULL_SCREEN"))
     }
 
     @Test

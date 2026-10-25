@@ -62,7 +62,7 @@ class SpeakEngineDialog() : BaseDialogFragment(R.layout.dialog_recycler_view),
     Toolbar.OnMenuItemClickListener {
 
     /** 全宽大弹窗:大浮动形态,圆角+四周留边(与 TextDialog/换源族同款) */
-    override val dialogForm = DialogForm.FULL_SCREEN
+    override val dialogEdgeInset = true
 
     private val binding by viewBinding(DialogRecyclerViewBinding::bind)
     private val viewModel: SpeakEngineViewModel by viewModels()

@@ -40,7 +40,7 @@ class ServersDialog : BaseDialogFragment(R.layout.dialog_recycler_view),
     Toolbar.OnMenuItemClickListener {
 
     /** 全屏弹窗:大浮动形态,圆角+四周留边 */
-    override val dialogForm = DialogForm.FULL_SCREEN
+    override val dialogEdgeInset = true
 
     val binding by viewBinding(DialogRecyclerViewBinding::bind)
     val viewModel by viewModels<ServersViewModel>()

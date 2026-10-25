@@ -22,7 +22,7 @@ import splitties.init.appCtx
 class OpenUrlConfirmDialog() : BaseDialogFragment(R.layout.dialog_open_url_confirm),
     Toolbar.OnMenuItemClickListener {
 
-    override val dialogForm = BaseDialogFragment.DialogForm.FULL_SCREEN
+    override val dialogEdgeInset = true
 
     constructor(
         uri: String,

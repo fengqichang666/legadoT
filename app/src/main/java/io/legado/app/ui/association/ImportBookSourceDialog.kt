@@ -18,7 +18,7 @@ import io.legado.app.constant.PreferKey
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.BookSource
 import io.legado.app.databinding.DialogCustomGroupBinding
-import io.legado.app.databinding.DialogRecyclerViewBinding
+import io.legado.app.databinding.DialogRecyclerViewAdaptiveBinding
 import io.legado.app.databinding.ItemSourceImportBinding
 import io.legado.app.help.config.AppConfig
 import io.legado.app.lib.dialogs.alert
@@ -38,11 +38,12 @@ import splitties.views.onClick
 /**
  * 导入书源弹出窗口
  */
-class ImportBookSourceDialog() : BaseDialogFragment(R.layout.dialog_recycler_view),
+class ImportBookSourceDialog() : BaseDialogFragment(R.layout.dialog_recycler_view_adaptive),
     Toolbar.OnMenuItemClickListener,
     CodeDialog.Callback {
 
     override val dialogEdgeInset = true
+    override val contentSizedRoot = true
 
     constructor(source: String, finishOnDismiss: Boolean = false) : this() {
         arguments = Bundle().apply {
@@ -51,7 +52,7 @@ class ImportBookSourceDialog() : BaseDialogFragment(R.layout.dialog_recycler_vie
         }
     }
 
-    private val binding by viewBinding(DialogRecyclerViewBinding::bind)
+    private val binding by viewBinding(DialogRecyclerViewAdaptiveBinding::bind)
     private val viewModel by viewModels<ImportBookSourceViewModel>()
     private val adapter by lazy { SourcesAdapter(requireContext()) }
 

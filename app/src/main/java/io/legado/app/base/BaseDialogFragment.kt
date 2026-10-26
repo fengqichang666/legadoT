@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.annotation.LayoutRes
 import androidx.appcompat.app.AppCompatActivity
@@ -60,6 +61,9 @@ abstract class BaseDialogFragment(
      */
     protected open val dialogEdgeInset: Boolean = false
 
+    /** Dialog.setContentView(View) supplies MATCH_PARENT root params; opt in to content height. */
+    protected open val contentSizedRoot: Boolean = false
+
     private var onDismissListener: OnDismissListener? = null
 
     fun setOnDismissListener(onDismissListener: OnDismissListener?) {
@@ -68,6 +72,14 @@ abstract class BaseDialogFragment(
 
     override fun onStart() {
         super.onStart()
+        if (contentSizedRoot) {
+            view?.let { root ->
+                val params = root.layoutParams
+                    ?: ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                params.height = ViewGroup.LayoutParams.WRAP_CONTENT
+                root.layoutParams = params
+            }
+        }
         if (!adaptationSoftKeyboard && !AppConfig.isEInkMode && dialogEdgeInset) {
             // 四周留边:窗口保持子类 setLayout 的全尺寸(其只改宽高,不碰 padding),
             // 留边区在窗口内、露出遮罩;点按不关闭与旧版系统 inset 行为一致

@@ -67,6 +67,33 @@ class N5VisualTest {
         assertTrue("导入弹窗空态应有图标", dlg.contains("@+id/iv_empty"))
     }
 
+    @Test
+    fun `adaptive import dialogs avoid fill-height measurement layers`() {
+        val layout = ProjectSources.app("src/main/res/layout/dialog_recycler_view_adaptive.xml")
+        assertTrue("导入布局应由父容器统一分配列表和 footer 高度", layout.contains("ContentSizedDialogLayout"))
+        assertTrue("导入列表应使用受限 RecyclerView", layout.contains("ContentSizedRecyclerView"))
+        assertTrue("导入列表应保留空态图标", layout.contains("@+id/iv_empty"))
+        assertTrue("导入列表不能嵌套下拉刷新测量层", !layout.contains("SwipeRefreshLayout"))
+        assertTrue("导入列表不能动态叠加 fast scroller", !layout.contains("FastScrollRecyclerView"))
+        assertTrue("导入列表不能用权重分配可用高度", !layout.contains("layout_weight"))
+
+        val imports = listOf(
+            "ui/association/ImportBookSourceDialog",
+            "ui/association/ImportRssSourceDialog",
+            "ui/association/ImportReplaceRuleDialog",
+            "ui/association/ImportTxtTocRuleDialog",
+            "ui/association/ImportDictRuleDialog",
+            "ui/association/ImportHttpTtsDialog",
+            "ui/association/ImportThemeDialog",
+            "ui/autoTask/ImportAutoTaskDialog",
+        )
+        imports.forEach {
+            val source = ProjectSources.app("src/main/java/io/legado/app/$it.kt")
+            assertTrue("$it 不应再使用共享填充布局", !source.contains("R.layout.dialog_recycler_view)"))
+            assertTrue("$it 不应再绑定共享刷新布局", !source.contains("DialogRecyclerViewBinding"))
+        }
+    }
+
     /**
      * 尺寸归 setLayout、留边归 dialogEdgeInset 的正交契约。
      *

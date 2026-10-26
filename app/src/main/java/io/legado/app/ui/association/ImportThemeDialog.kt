@@ -12,7 +12,7 @@ import io.legado.app.R
 import io.legado.app.base.BaseDialogFragment
 import io.legado.app.base.adapter.ItemViewHolder
 import io.legado.app.base.adapter.RecyclerAdapter
-import io.legado.app.databinding.DialogRecyclerViewBinding
+import io.legado.app.databinding.DialogRecyclerViewAdaptiveBinding
 import io.legado.app.databinding.ItemSourceImportBinding
 import io.legado.app.help.config.ThemeConfig
 import io.legado.app.ui.widget.dialog.CodeDialog
@@ -24,9 +24,10 @@ import io.legado.app.utils.viewbindingdelegate.viewBinding
 import io.legado.app.utils.visible
 import splitties.views.onClick
 
-class ImportThemeDialog() : BaseDialogFragment(R.layout.dialog_recycler_view) {
+class ImportThemeDialog() : BaseDialogFragment(R.layout.dialog_recycler_view_adaptive) {
 
     override val dialogEdgeInset = true
+    override val contentSizedRoot = true
 
     constructor(source: String, finishOnDismiss: Boolean = false) : this() {
         arguments = Bundle().apply {
@@ -35,7 +36,7 @@ class ImportThemeDialog() : BaseDialogFragment(R.layout.dialog_recycler_view) {
         }
     }
 
-    private val binding by viewBinding(DialogRecyclerViewBinding::bind)
+    private val binding by viewBinding(DialogRecyclerViewAdaptiveBinding::bind)
     private val viewModel by viewModels<ImportThemeViewModel>()
     private val adapter by lazy { SourcesAdapter(requireContext()) }
 

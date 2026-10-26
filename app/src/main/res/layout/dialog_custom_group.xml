@@ -65,6 +65,12 @@
                 android:id="@+id/edit_view"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:paddingStart="12dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="6dp"
+                android:singleLine="true"
                 tools:ignore="SpeakableTextPresentCheck,TouchTargetSizeCheck" />
 
         </io.legado.app.ui.widget.text.TextInputLayout>

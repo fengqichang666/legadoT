@@ -68,6 +68,14 @@ class N5VisualTest {
     }
 
     @Test
+    fun `custom source group input keeps a usable single-line target`() {
+        val layout = ProjectSources.app("src/main/res/layout/dialog_custom_group.xml")
+        assertTrue("分组名称输入框应保持标准触摸高度", layout.contains("android:minHeight=\"48dp\""))
+        assertTrue("分组名称输入框应保留标准内边距", layout.contains("android:paddingStart=\"12dp\""))
+        assertTrue("分组名称输入框应为单行输入", layout.contains("android:singleLine=\"true\""))
+    }
+
+    @Test
     fun `adaptive import dialogs avoid fill-height measurement layers`() {
         val layout = ProjectSources.app("src/main/res/layout/dialog_recycler_view_adaptive.xml")
         assertTrue("导入布局应由父容器统一分配列表和 footer 高度", layout.contains("ContentSizedDialogLayout"))

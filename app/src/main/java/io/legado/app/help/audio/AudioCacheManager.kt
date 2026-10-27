@@ -7,6 +7,7 @@ import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookSource
 import io.legado.app.help.config.AppConfig
+import io.legado.app.help.book.BookDownloadFiles
 import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.model.webBook.WebBook
 import io.legado.app.utils.FileDoc
@@ -55,11 +56,12 @@ object AudioCacheManager {
         bookSource: BookSource,
         book: Book,
         chapter: BookChapter,
+        downloadFolder: FileDoc? = null,
     ): Result<String> = kotlin.runCatching {
         if (chapter.isVolume) {
             throw IllegalStateException("分卷章节不支持缓存")
         }
-        if (!hasCacheDirConfigured()) {
+        if (downloadFolder == null && !hasCacheDirConfigured()) {
             throw IllegalStateException(appCtx.getString(R.string.audio_cache_folder_not_set))
         }
         val playUrl = resolvePlayUrl(bookSource, book, chapter)
@@ -77,6 +79,12 @@ object AudioCacheManager {
             val contentType = res.header("Content-Type")
             val finalUrl = res.request.url.toString()
             val ext = detectExt(contentType, finalUrl, playUrl)
+            if (downloadFolder != null) {
+                return@runCatching res.body.byteStream().use { input ->
+                    BookDownloadFiles.writeAudio(downloadFolder, chapter, ext, input,
+                        res.body.contentLength().takeIf { it > 0L }).uri.toString()
+                }
+            }
             val cacheFile = createCacheFile(book, chapter, playUrl, ext)
             val expectedSize = res.body.contentLength().takeIf { it > 0L }
             try {
@@ -178,9 +186,10 @@ object AudioCacheManager {
         return prefix.toIntOrNull()
     }
 
-    private fun detectExt(contentType: String?, finalUrl: String, playUrl: String): String {
+    internal fun detectExt(contentType: String?, finalUrl: String, playUrl: String): String {
         val ct = contentType?.substringBefore(";")?.lowercase(Locale.ROOT)
-        if (ct?.contains("mpegurl") == true || finalUrl.endsWith(".m3u8", true)) {
+        if (ct?.contains("mpegurl") == true || extFromUrl(finalUrl) == "m3u8"
+            || extFromUrl(playUrl.substringBefore(',')) == "m3u8") {
             throw IllegalStateException(appCtx.getString(R.string.audio_cache_skip_hls))
         }
         when {

@@ -19,6 +19,9 @@ import io.legado.app.exception.NoBooksDirException
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.AppWebDav
 import io.legado.app.help.book.BookHelp
+import io.legado.app.help.book.addType
+import io.legado.app.help.book.isImage
+import io.legado.app.help.config.AppConfig
 import io.legado.app.help.book.getExportFileName
 import io.legado.app.help.book.getRemoteUrl
 import io.legado.app.help.book.isLocal
@@ -31,6 +34,7 @@ import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.lib.webdav.ObjectNotFoundException
 import io.legado.app.model.AudioPlay
 import io.legado.app.model.BookCover
+import io.legado.app.model.BookDownload
 import io.legado.app.model.ReadBook
 import io.legado.app.model.ReadManga
 import io.legado.app.model.AutoTask
@@ -59,6 +63,30 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
     val waitDialogData = MutableLiveData<Boolean>()
     val loadingData = MutableLiveData<Boolean>()
     val actionLive = MutableLiveData<String>()
+    val downloadStarting = MutableLiveData(false)
+    var downloadFormat = listOf("txt", "epub", "pdf").getOrElse(AppConfig.exportType) { "txt" }
+
+    fun downloadBook(directory: String) {
+        val book = getBook(false)?.copy() ?: return
+        if (downloadStarting.value == true || BookDownload.isRunning(book.bookUrl)) return
+        if (book.isLocal || book.isImage || book.isWebFile) return
+        downloadStarting.value = true
+        val chapters = chapterListData.value?.map { it.copy() }
+        if (!inBookshelf) book.addType(BookType.notShelf)
+        execute {
+            check(!BookDownload.isRunning(book.bookUrl)) { "此书已在下载" }
+            book.save()
+            chapters?.let { appDb.bookChapterDao.insert(*it.toTypedArray()) }
+            check(BookDownload.start(context, book, directory, downloadFormat)) { "此书正在下载或导出，请等待完成" }
+        }.onSuccess {
+            context.toastOnUi("已开始下载，可在通知栏查看进度和取消")
+        }.onError {
+            AppLog.put("启动整本下载失败", it)
+            context.toastOnUi(it.localizedMessage ?: "启动下载失败")
+        }.onFinally {
+            downloadStarting.value = false
+        }
+    }
 
     fun initData(intent: Intent) {
         execute {

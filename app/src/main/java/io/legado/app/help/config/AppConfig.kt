@@ -649,6 +649,12 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
             }
         }
 
+    var bookDownloadTreeUri: String?
+        get() = appCtx.getPrefString("bookDownloadTreeUri")
+        set(value) {
+            appCtx.putPrefString("bookDownloadTreeUri", value)
+        }
+
     val doublePageHorizontal: String?
         get() = appCtx.getPrefString(PreferKey.doublePageHorizontal)
 

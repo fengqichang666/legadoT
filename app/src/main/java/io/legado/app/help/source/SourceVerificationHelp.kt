@@ -1,5 +1,6 @@
 package io.legado.app.help.source
 
+import com.script.rhino.rhinoContextOrNull
 import io.legado.app.constant.AppLog
 import io.legado.app.data.entities.BaseSource
 import io.legado.app.exception.NoStackTraceException
@@ -11,12 +12,33 @@ import io.legado.app.utils.isMainThread
 import io.legado.app.utils.startActivity
 import splitties.init.appCtx
 import java.util.concurrent.locks.LockSupport
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration.Companion.minutes
 
 /**
  * 源验证
  */
 object SourceVerificationHelp {
+
+    const val MANUAL_VERIFICATION = "需要手动验证"
+
+    /** 每个清理校验单独记录，避免影响同时进行的阅读，也不依赖 JS 是否继续抛出异常。 */
+    class CheckContext : AbstractCoroutineContextElement(Key) {
+        companion object Key : CoroutineContext.Key<CheckContext>
+
+        @Volatile var required = false
+            private set
+
+        fun requireManualVerification(): Nothing {
+            required = true
+            throw NoStackTraceException(MANUAL_VERIFICATION)
+        }
+    }
+
+    private fun requireInteractiveVerification() {
+        rhinoContextOrNull?.coroutineContext?.get(CheckContext)?.requireManualVerification()
+    }
 
     private val waitTime = 1.minutes.inWholeNanoseconds
 
@@ -29,7 +51,6 @@ object SourceVerificationHelp {
      * 获取书源验证结果
      * 图片验证码 防爬 滑动验证码 点击字符 等等
      */
-    @Synchronized
     fun getVerificationResult(
         source: BaseSource?,
         url: String,
@@ -39,6 +60,19 @@ object SourceVerificationHelp {
     ): String {
         source
             ?: throw NoStackTraceException("getVerificationResult parameter source cannot be null")
+        // 必须在等待锁之前拦截，普通阅读可能正占用验证锁等待用户操作。
+        requireInteractiveVerification()
+        return awaitVerificationResult(source, url, title, useBrowser, refetchAfterSuccess)
+    }
+
+    @Synchronized
+    private fun awaitVerificationResult(
+        source: BaseSource,
+        url: String,
+        title: String,
+        useBrowser: Boolean,
+        refetchAfterSuccess: Boolean
+    ): String {
         require(url.length < 64 * 1024) { "getVerificationResult parameter url too long" }
         check(!isMainThread) { "getVerificationResult must be called on a background thread" }
 
@@ -86,6 +120,7 @@ object SourceVerificationHelp {
         refetchAfterSuccess: Boolean? = true
     ) {
         source ?: throw NoStackTraceException("startBrowser parameter source cannot be null")
+        requireInteractiveVerification()
         require(url.length < 64 * 1024) { "startBrowser parameter url too long" }
         appCtx.startActivity<WebViewActivity> {
             putExtra("title", title)

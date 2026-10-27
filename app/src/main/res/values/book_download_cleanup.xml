@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cleanup_duplicate_sources">清理重复书源</string>
+    <string name="cleanup_invalid_sources">清理无效书源</string>
+    <string name="download_whole_book">下载整本</string>
+</resources>

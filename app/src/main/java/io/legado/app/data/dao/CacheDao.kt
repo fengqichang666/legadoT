@@ -22,12 +22,18 @@ interface CacheDao {
     fun delete(key: String)
 
     @Query(
-        """delete from caches where `key` like 'v_' || :key || '_%'
+        """delete from caches where substr(`key`, 1, length(:key) + 3) = 'v_' || :key || '_'
         or `key` = 'userInfo_' || :key
         or `key` = 'loginHeader_' || :key
         or `key` = 'sourceVariable_' || :key"""
     )
     fun deleteSourceVariables(key: String)
+
+    @Query("""select * from caches where (deadline = 0 or deadline > :now) and (
+        substr(`key`, 1, length(:key) + 3) = 'v_' || :key || '_'
+        or `key` = 'userInfo_' || :key or `key` = 'loginHeader_' || :key
+        or `key` = 'sourceVariable_' || :key)""")
+    fun getSourceVariables(key: String, now: Long): List<Cache>
 
     @Query("delete from caches where deadline > 0 and deadline < :now")
     fun clearDeadline(now: Long)

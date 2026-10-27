@@ -30,6 +30,7 @@ import io.legado.app.databinding.DialogEditTextBinding
 import io.legado.app.help.DirectLinkUpload
 import io.legado.app.help.ShibbolethShare
 import io.legado.app.help.config.LocalConfig
+import io.legado.app.help.source.SourceCleanup
 import io.legado.app.lib.dialogs.alert
 import io.legado.app.lib.dialogs.shibbolethButton
 import io.legado.app.lib.theme.toolbarTextColor
@@ -89,6 +90,7 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
     SearchView.OnQueryTextListener {
     override val binding by viewBinding(ActivityBookSourceBinding::inflate)
     override val viewModel by viewModels<BookSourceViewModel>()
+    private val cleanupViewModel by viewModels<BookSourceCleanupViewModel>()
     private val importRecordKey = "bookSourceRecordKey"
     private val adapter by lazy { BookSourceAdapter(this, this, binding.recyclerView) }
     private val itemTouchCallback by lazy { ItemTouchCallback(adapter) }
@@ -164,6 +166,17 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
         initLiveDataGroup()
         initSelectActionBar()
         resumeCheckSource()
+        cleanupViewModel.busy.observe(this) { invalidateOptionsMenu() }
+        cleanupViewModel.message.observe(this) { message ->
+            message ?: return@observe
+            toastOnUi(message)
+            cleanupViewModel.message.value = null
+        }
+        cleanupViewModel.preview.observe(this) { preview ->
+            preview ?: return@observe
+            cleanupViewModel.preview.value = null
+            showCleanupPreview(preview)
+        }
         if (!LocalConfig.bookSourcesHelpVersionIsLast) {
             showHelp("SourceMBookHelp")
         }
@@ -175,6 +188,8 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        menu.findItem(R.id.menu_cleanup_duplicates).isEnabled = cleanupViewModel.busy.value != true
+        menu.findItem(R.id.menu_cleanup_invalid).isEnabled = cleanupViewModel.busy.value != true && !CheckSource.isRunning
         groupMenu = menu.findItem(R.id.menu_group).subMenu
         val sortSubMenu = menu.findItem(R.id.action_sort).subMenu!!
         sortSubMenu.findItem(R.id.menu_sort_desc).isChecked = !sortAscending
@@ -185,6 +200,8 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
 
     override fun onCompatOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
+            R.id.menu_cleanup_duplicates -> startCleanup(true)
+            R.id.menu_cleanup_invalid -> startCleanup(false)
             R.id.menu_add_book_source -> startActivity<BookSourceEditActivity>()
             R.id.menu_add_js_source -> startActivity<JsSourceEditActivity>()
             R.id.menu_import_qr -> qrResult.launch()
@@ -510,6 +527,10 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
             }
             customView { alertBinding.root }
             okButton {
+                if (CheckSource.isRunning) {
+                    toastOnUi("已有书源在校验，请等待完成")
+                    return@okButton
+                }
                 keepScreenOn(true)
                 alertBinding.editView.text?.toString()?.let {
                     if (it.isNotEmpty()) {
@@ -517,7 +538,7 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
                     }
                 }
                 val selectItems = adapter.selection
-                CheckSource.start(this@BookSourceActivity, selectItems)
+                if (!CheckSource.start(this@BookSourceActivity, selectItems)) return@okButton
                 val adapterItems = adapter.getItems()
                 val firstItem = adapterItems.indexOf(selectItems.firstOrNull())
                 val lastItem = adapterItems.indexOf(selectItems.lastOrNull())
@@ -530,6 +551,71 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
         //手动设置监听 避免点击打开校验设置后对话框关闭
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
             showDialogFragment<CheckSourceConfig>()
+        }
+    }
+
+    private fun startCleanup(duplicates: Boolean) {
+        if (cleanupViewModel.busy.value == true) return
+        val title = if (duplicates) R.string.cleanup_duplicate_sources else R.string.cleanup_invalid_sources
+        alert(title) {
+            setMessage("范围：全部本地书源。自动保留书架正在使用的书源，扫描后可勾选并确认删除。" +
+                if (duplicates) "" else "\n需要手动验证的书源会跳过并保留，可在结果中查看保留原因。")
+            val input = if (!duplicates) DialogEditTextBinding.inflate(layoutInflater).apply {
+                editView.setText(CheckSource.keyword)
+                editView.hint = "校验关键词"
+                customView { root }
+            } else null
+            if (!duplicates) neutralButton(R.string.check_source_config) {
+                showDialogFragment<CheckSourceConfig>()
+            }
+            okButton {
+                if (input != null) {
+                    if (CheckSource.isRunning) {
+                        toastOnUi("已有书源在校验，请等待完成")
+                        return@okButton
+                    }
+                    val keyword = input.editView.text?.toString()?.trim()
+                    if (keyword.isNullOrEmpty()) {
+                        toastOnUi("请输入校验关键词")
+                        return@okButton
+                    }
+                    CheckSource.keyword = keyword
+                }
+                cleanupViewModel.scan(duplicates)
+            }
+            cancelButton()
+        }
+    }
+
+    private fun showCleanupPreview(preview: SourceCleanup.Preview,
+                                   checked: BooleanArray = BooleanArray(preview.candidates.size) { true }) {
+        if (preview.candidates.isEmpty()) {
+            alert("没有可删除的书源") {
+                setMessage(preview.kept.joinToString("\n").ifBlank { "未发现符合清理条件的书源" })
+                okButton()
+            }
+            return
+        }
+        alert("清理预览（${checked.size} 个候选）") {
+            multiChoiceItems(preview.candidates.map {
+                "${it.snapshot.source.bookSourceName}\n${it.snapshot.source.bookSourceUrl}\n${it.reason}"
+            }.toTypedArray(), checked) { _, index, value -> checked[index] = value }
+            neutralButton("保留原因") {
+                alert("已保留的书源") {
+                    setMessage(preview.kept.joinToString("\n").ifBlank { "书架使用中的书源均自动保留" })
+                    okButton { showCleanupPreview(preview, checked) }
+                }
+            }
+            positiveButton(R.string.delete) {
+                val selected = preview.candidates.filterIndexed { index, _ -> checked[index] }
+                if (selected.isEmpty()) return@positiveButton
+                alert("确认删除 ${selected.size} 个书源？") {
+                    setMessage("将删除所选书源及其变量、登录配置。此操作不可撤销，书架使用中的书源会再次检查并排除。")
+                    positiveButton(R.string.delete) { cleanupViewModel.delete(selected) }
+                    cancelButton()
+                }
+            }
+            cancelButton()
         }
     }
 

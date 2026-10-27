@@ -210,6 +210,7 @@ object CacheBook {
         private var isLoading = false
         private var notifiedComplete = false
         private var hasExplicitCacheTask = false
+        private var bookDownloadId: String? = null
 
         val waitCount get() = waitDownloadSet.size
         val onDownloadCount get() = onDownloadSet.size
@@ -245,11 +246,13 @@ object CacheBook {
             isStopped = true
             isLoading = false
             hasExplicitCacheTask = false
+            bookDownloadId = null
+            BookDownload.cancelCache(book.bookUrl)
             postEvent(EventBus.UP_DOWNLOAD, book.bookUrl)
         }
 
         @Synchronized
-        fun addDownload(start: Int, end: Int, explicitTask: Boolean = false) {
+        fun addDownload(start: Int, end: Int, explicitTask: Boolean = false, downloadId: String? = null) {
             val isIdle = waitDownloadSet.isEmpty() && onDownloadSet.isEmpty() && !isLoading
             if (isStopped || isIdle) {
                 successSet.clear()
@@ -260,6 +263,7 @@ object CacheBook {
                 hasExplicitCacheTask = true
             }
             isStopped = false
+            if (downloadId != null) bookDownloadId = downloadId
             for (i in start..end) {
                 if (!onDownloadSet.contains(i)) {
                     waitDownloadSet.add(i)
@@ -332,10 +336,12 @@ object CacheBook {
 
         @Synchronized
         private fun onFinally() {
-            if (waitDownloadSet.isEmpty() && onDownloadSet.isEmpty()) {
+            if (waitDownloadSet.isEmpty() && onDownloadSet.isEmpty() && !waitingRetry && !isLoading) {
                 if (hasExplicitCacheTask && !isStopped && !notifiedComplete) {
                     notifiedComplete = true
-                    notifyComplete()
+                    if (bookDownloadId == null) notifyComplete()
+                    else bookDownloadId?.let { BookDownload.textCached(book.bookUrl, it) }
+                    bookDownloadId = null
                 }
                 cacheBookMap.remove(book.bookUrl)
             }
@@ -369,7 +375,7 @@ object CacheBook {
             val chapterIndex = waitDownloadSet.firstOrNull()
             if (chapterIndex == null) {
                 if (!isLoading && onDownloadSet.isEmpty()) {
-                    cacheBookMap.remove(book.bookUrl)
+                    onFinally()
                 }
                 return
             }
@@ -379,25 +385,28 @@ object CacheBook {
             }
             val chapter = appDb.bookChapterDao.getChapter(book.bookUrl, chapterIndex) ?: let {
                 waitDownloadSet.remove(chapterIndex)
+                onFinally()
                 return
             }
             if (chapter.isVolume) {
                 /** 修正下载计数 */
                 postEvent(EventBus.SAVE_CONTENT, Pair(book, chapter))
                 waitDownloadSet.remove(chapterIndex)
+                onFinally()
                 return
             }
-            if (BookHelp.hasImageContent(book, chapter)) {
+            // 空缓存文件不算已下载，否则整本下载重试仍会跳过缺失正文。
+            val cachedContent = BookHelp.getContent(book, chapter)
+            if (!cachedContent.isNullOrBlank() && BookHelp.hasImageContent(book, chapter)) {
                 waitDownloadSet.remove(chapterIndex)
+                onFinally()
                 return
             }
             waitDownloadSet.remove(chapterIndex)
             onDownloadSet.add(chapterIndex)
-            if (BookHelp.hasContent(book, chapter)) {
+            if (!cachedContent.isNullOrBlank()) {
                 Coroutine.async(scope, context, executeContext = context) {
-                    BookHelp.getContent(book, chapter)?.let {
-                        BookHelp.saveImages(bookSource, book, chapter, it, 1)
-                    }
+                    BookHelp.saveImages(bookSource, book, chapter, cachedContent, 1)
                 }.onSuccess {
                     onSuccess(chapter)
                 }.onError {

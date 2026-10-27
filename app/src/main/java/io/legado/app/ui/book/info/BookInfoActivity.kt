@@ -60,6 +60,7 @@ import io.legado.app.lib.dialogs.selector
 import io.legado.app.lib.theme.accentColor
 import io.legado.app.lib.theme.AppColorScheme
 import io.legado.app.model.AutoTask
+import io.legado.app.model.BookDownload
 import io.legado.app.model.AutoTaskRule
 import io.legado.app.model.SourceCallBack
 import io.legado.app.model.remote.RemoteBookWebDav
@@ -93,6 +94,7 @@ import io.legado.app.utils.dpToPx
 import io.legado.app.utils.fromJsonObject
 import io.legado.app.utils.gone
 import io.legado.app.utils.longToastOnUi
+import io.legado.app.utils.launch
 import io.legado.app.utils.observeEvent
 import io.legado.app.utils.openFileUri
 import io.legado.app.utils.sendToClip
@@ -131,6 +133,7 @@ class BookInfoActivity :
             AppConfig.defaultBookTreeUri = treeUri.toString()
         }
     }
+    private val wholeBookDownload = BookDownloadDialog(this) { viewModel }
     private val readBookResult = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -222,6 +225,7 @@ class BookInfoActivity :
 
     @SuppressLint("PrivateResource")
     override fun onActivityCreated(savedInstanceState: Bundle?) {
+        viewModel.downloadStarting.observe(this) { invalidateOptionsMenu() }
         // eager 预载封面:搜索列表带 coverUrl 随 intent 过来,详情页不等书籍详情的网络请求
         // 就先把封面塞进 ivCover(Glide 通常命中磁盘缓存,毫秒级),首屏即真实封面
         intent.getStringExtra("coverUrl")?.let { coverUrl ->
@@ -326,6 +330,11 @@ class BookInfoActivity :
     }
 
     override fun onMenuOpened(featureId: Int, menu: Menu): Boolean {
+        val downloadBook = viewModel.getBook(false)
+        menu.findItem(R.id.menu_download_whole_book)?.apply {
+            isVisible = downloadBook != null && !downloadBook.isLocal && !downloadBook.isImage && !downloadBook.isWebFile
+            isEnabled = viewModel.downloadStarting.value != true && downloadBook?.let { !BookDownload.isRunning(it.bookUrl) } == true
+        }
         menu.findItem(R.id.menu_can_update)?.isChecked =
             viewModel.bookData.value?.canUpdate ?: true
         menu.findItem(R.id.menu_split_long_chapter)?.isChecked =
@@ -351,6 +360,7 @@ class BookInfoActivity :
 
     override fun onCompatOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
+            R.id.menu_download_whole_book -> wholeBookDownload.show()
             R.id.menu_edit -> {
                 viewModel.getBook()?.let {
                     infoEditResult.launch {
@@ -470,6 +480,7 @@ class BookInfoActivity :
     }
 
     override fun observeLiveBus() {
+        observeEvent<String>(EventBus.BOOK_DOWNLOAD) { invalidateOptionsMenu() }
         viewModel.actionLive.observe(this) {
             when (it) {
                 "selectBooksDir" -> localBookTreeSelect.launch {

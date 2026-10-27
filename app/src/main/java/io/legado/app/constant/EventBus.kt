@@ -27,6 +27,7 @@ object EventBus {
     const val WEB_SERVICE = "webService"
     const val MCP_SERVICE = "mcpService"
     const val UP_DOWNLOAD = "upDownload"
+    const val BOOK_DOWNLOAD = "bookDownload"
     const val UP_DOWNLOAD_STATE = "upDownloadState"
     const val SAVE_CONTENT = "saveContent"
     const val CHECK_SOURCE = "checkSource"

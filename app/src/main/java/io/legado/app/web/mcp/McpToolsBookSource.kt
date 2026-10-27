@@ -618,12 +618,15 @@ internal fun Server.registerBookSourceTools() {
                 val started: Boolean
                 val before: Map<String, String>
                 try {
-                    if (Debug.callback != null || Debug.isChecking) {
+                    if (Debug.callback != null || Debug.isChecking || CheckSource.isRunning) {
                         return@addTool err("调试通道占用中,稍后重试")
                     }
                     if (!keyword.isNullOrEmpty()) CheckSource.keyword = keyword
                     before = runCatching { HashMap(Debug.debugMessageMap) }.getOrDefault(hashMapOf())
-                    CheckSource.start(appCtx, parts)
+                    if (!CheckSource.start(appCtx, parts)) {
+                        CheckSource.keyword = prevKeyword
+                        return@addTool err("已有书源在校验,稍后重试")
+                    }
                     started = withTimeoutOrNull(3000L) {
                         while (!Debug.isChecking) delay(100)
                         true

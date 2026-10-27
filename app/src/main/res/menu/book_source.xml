@@ -151,4 +151,13 @@
         android:title="@string/help"
         app:showAsAction="never" />
 
+    <item
+        android:id="@+id/menu_cleanup_duplicates"
+        android:title="@string/cleanup_duplicate_sources"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/menu_cleanup_invalid"
+        android:title="@string/cleanup_invalid_sources"
+        app:showAsAction="never" />
+
 </menu>

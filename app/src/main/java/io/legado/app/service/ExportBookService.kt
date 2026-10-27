@@ -30,6 +30,7 @@ import io.legado.app.data.entities.BookChapter
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.AppWebDav
 import io.legado.app.help.book.BookHelp
+import io.legado.app.help.book.BookDownloadFiles
 import io.legado.app.help.book.ContentProcessor
 import io.legado.app.help.book.getExportFileName
 import io.legado.app.help.book.getBookSource
@@ -37,6 +38,7 @@ import io.legado.app.help.book.isImage
 import io.legado.app.help.book.isLocalModified
 import io.legado.app.help.config.AppConfig
 import io.legado.app.model.ReadBook
+import io.legado.app.model.BookDownload
 import io.legado.app.model.localBook.LocalBook
 import io.legado.app.ui.book.cache.CacheActivity
 import io.legado.app.utils.FileDoc
@@ -58,6 +60,7 @@ import io.legado.app.utils.servicePendingIntent
 import io.legado.app.utils.toastOnUi
 import io.legado.app.utils.writeFile
 import kotlinx.coroutines.Dispatchers.IO
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -82,6 +85,7 @@ import splitties.init.appCtx
 import splitties.systemservices.notificationManager
 import java.nio.charset.Charset
 import java.util.concurrent.ConcurrentHashMap
+import java.util.Collections
 import kotlin.math.max
 import kotlin.math.min
 import io.legado.app.data.entities.getDisplayTitle
@@ -100,18 +104,22 @@ class ExportBookService : BaseService() {
     companion object {
         val exportProgress = ConcurrentHashMap<String, Int>()
         val exportMsg = ConcurrentHashMap<String, String>()
+        private val exportingBooks = ConcurrentHashMap.newKeySet<String>()
+        fun isExporting(bookUrl: String) = bookUrl in exportingBooks
     }
 
     data class ExportConfig(
         val path: String,
         val type: String,
         val epubSize: Int = 1,
-        val epubScope: String? = null
+        val epubScope: String? = null,
+        val downloadId: String? = null
     )
 
     private val groupKey = "${appCtx.packageName}.exportBook"
-    private val waitExportBooks = linkedMapOf<String, ExportConfig>()
+    private val waitExportBooks = Collections.synchronizedMap(linkedMapOf<String, ExportConfig>())
     private var exportJob: Job? = null
+    private var activeDownload: BookDownload.Request? = null
     private var notificationContentText = appCtx.getString(R.string.service_starting)
 
 
@@ -119,12 +127,18 @@ class ExportBookService : BaseService() {
         when (intent?.action) {
             IntentAction.start -> kotlin.runCatching {
                 val bookUrl = intent.getStringExtra("bookUrl")!!
-                if (!exportProgress.contains(bookUrl)) {
+                val downloadId = intent.getStringExtra("downloadId")
+                if (downloadId == null && BookDownload.isRunning(bookUrl)) {
+                    toastOnUi("此书正在下载，请等待完成")
+                    return@runCatching
+                }
+                if (exportingBooks.add(bookUrl)) {
                     val exportConfig = ExportConfig(
                         path = intent.getStringExtra("exportPath")!!,
                         type = intent.getStringExtra("exportType")!!,
                         epubSize = intent.getIntExtra("epubSize", 1),
-                        epubScope = intent.getStringExtra("epubScope")
+                        epubScope = intent.getStringExtra("epubScope"),
+                        downloadId = downloadId
                     )
                     waitExportBooks[bookUrl] = exportConfig
                     exportMsg[bookUrl] = getString(R.string.export_wait)
@@ -132,6 +146,12 @@ class ExportBookService : BaseService() {
                     export()
                 }
             }.onFailure {
+                intent.getStringExtra("bookUrl")?.let { url ->
+                    exportingBooks.remove(url)
+                    BookDownload.get(url)?.let { request ->
+                        BookDownload.finish(request, BookDownload.Outcome.FAILED, it.localizedMessage ?: "无法保存文件")
+                    }
+                }
                 toastOnUi(it.localizedMessage)
             }
 
@@ -147,7 +167,9 @@ class ExportBookService : BaseService() {
         super.onDestroy()
         exportProgress.clear()
         exportMsg.clear()
-        waitExportBooks.keys.forEach {
+        exportingBooks.clear()
+        BookDownload.cancelPhase(BookDownload.Phase.EXPORTING)
+        synchronized(waitExportBooks) { waitExportBooks.keys.toList() }.forEach {
             postEvent(EventBus.EXPORT_BOOK, it)
         }
     }
@@ -190,18 +212,36 @@ class ExportBookService : BaseService() {
         }
         exportJob = lifecycleScope.launch(IO) {
             while (isActive) {
-                val (bookUrl, exportConfig) = waitExportBooks.entries.firstOrNull() ?: let {
+                val next = synchronized(waitExportBooks) {
+                    waitExportBooks.entries.firstOrNull()?.let { it.key to it.value }
+                        ?.also { waitExportBooks.remove(it.first) }
+                }
+                val (bookUrl, exportConfig) = next ?: let {
                     notificationContentText = "导出完成"
                     upExportNotification(ExportNotificationState.FINISHED)
                     stopSelf()
                     return@launch
                 }
                 exportProgress[bookUrl] = 0
-                waitExportBooks.remove(bookUrl)
+                activeDownload = BookDownload.get(bookUrl)?.takeIf { it.id == exportConfig.downloadId }
+                if (exportConfig.downloadId != null && activeDownload == null) {
+                    exportProgress.remove(bookUrl)
+                    exportingBooks.remove(bookUrl)
+                    continue
+                }
                 val book = appDb.bookDao.getBook(bookUrl)
+                var complete = false
                 try {
                     book ?: throw NoStackTraceException("获取${bookUrl}书籍出错")
-                    refreshChapterList(book)
+                    val download = activeDownload
+                    val path = if (download != null) {
+                        val chapters = requireNotNull(download.chapters) { "缺少本次下载的目录" }
+                        BookDownloadFiles.requireComplete(chapters) { BookHelp.getContent(book, it) }
+                        BookDownloadFiles.createBookFolder(download.directory, book).also { download.output = it }.toString()
+                    } else {
+                        refreshChapterList(book)
+                        exportConfig.path
+                    }
                     notificationContentText = getString(
                         R.string.export_book_notification_content,
                         book.name,
@@ -211,24 +251,38 @@ class ExportBookService : BaseService() {
                     when (exportConfig.type) {
                         "epub" -> {
                             if (exportConfig.epubScope.isNullOrBlank()) {
-                                exportEpub(exportConfig.path, book)
+                                // SAF 子目录重新按 tree URI 打开会回到授权根目录，必须保留原 FileDoc。
+                                if (download != null) exportEpub(requireNotNull(download.output), book)
+                                else exportEpub(path, book)
                             } else {
                                 CustomExporter(
                                     exportConfig.epubScope,
                                     exportConfig.epubSize
-                                ).export(exportConfig.path, book)
+                                ).export(path, book)
                             }
                         }
-                        "pdf" -> exportPdf(exportConfig.path, book)
-                        "txt" -> exportTxt(exportConfig.path, book)
+                        "pdf" -> if (download != null) exportPdf(requireNotNull(download.output), book) else exportPdf(path, book)
+                        "txt" -> if (download != null) exportTxt(requireNotNull(download.output), book) else exportTxt(path, book)
                         else -> throw NoStackTraceException("未知导出类型: ${exportConfig.type}")
                     }
+                    ensureActive()
+                    complete = true
                     exportMsg[book.bookUrl] = getString(R.string.export_success)
+                    download?.let { BookDownload.finish(it, BookDownload.Outcome.COMPLETED, "已保存到：$path") }
                 } catch (e: Throwable) {
+                    activeDownload?.let {
+                        BookDownload.finish(it, if (e is CancellationException) BookDownload.Outcome.CANCELLED else BookDownload.Outcome.FAILED,
+                            e.localizedMessage ?: "保存文件失败")
+                    }
                     ensureActive()
                     exportMsg[bookUrl] = e.localizedMessage ?: "ERROR"
                     AppLog.put("导出书籍<${book?.name ?: bookUrl}>出错", e)
                 } finally {
+                    if (!complete) activeDownload?.output?.let { output ->
+                        runCatching { output.delete() }.onFailure { AppLog.put("删除未完成的下载文件失败", it) }
+                    }
+                    activeDownload = null
+                    exportingBooks.remove(bookUrl)
                     exportProgress.remove(bookUrl)
                     postEvent(EventBus.EXPORT_BOOK, bookUrl)
                 }
@@ -258,12 +312,16 @@ class ExportBookService : BaseService() {
 
     private fun getChapterContentForExport(book: Book, chapter: BookChapter): String? {
         val content = BookHelp.getContent(book, chapter)
+        check(activeDownload == null || chapter.isVolume || !content.isNullOrBlank()) { "保存时发现缺失章节：${chapter.title}" }
         return when {
             content != null -> content
             chapter.isVolume -> ""
             else -> null
         }
     }
+
+    private fun chaptersForExport(book: Book): List<BookChapter> =
+        activeDownload?.chapters?.map { it.copy() } ?: appDb.bookChapterDao.getChapterList(book.bookUrl)
 
     private suspend fun exportTxt(path: String, book: Book) {
         exportMsg.remove(book.bookUrl)
@@ -296,7 +354,7 @@ class ExportBookService : BaseService() {
                 }
             }
         }
-        if (AppConfig.exportToWebDav) {
+        if (activeDownload == null && AppConfig.exportToWebDav) {
             // 导出到webdav
             AppWebDav.exportWebDav(bookDoc.uri, filename)
         }
@@ -343,7 +401,7 @@ class ExportBookService : BaseService() {
         val useReplace = AppConfig.exportUseReplace && book.getUseReplaceRule()
         val contentProcessor = ContentProcessor.get(book.name, book.origin)
         val titleReplaceRules = contentProcessor.getTitleReplaceRules()
-        val chapterList = appDb.bookChapterDao.getChapterList(book.bookUrl)
+        val chapterList = chaptersForExport(book)
         val bookSource = if (book.isImage) book.getBookSource() else null
         val pdf = PdfDocument()
 
@@ -421,6 +479,7 @@ class ExportBookService : BaseService() {
         )
 
         chapterList.forEachIndexed { index, chapter ->
+            currentCoroutineContext().ensureActive()
             postEvent(EventBus.EXPORT_BOOK, book.bookUrl)
             exportProgress[book.bookUrl] = index
 
@@ -472,7 +531,7 @@ class ExportBookService : BaseService() {
         }
         pdf.close()
 
-        if (AppConfig.exportToWebDav) {
+        if (activeDownload == null && AppConfig.exportToWebDav) {
             AppWebDav.exportWebDav(bookDoc.uri, filename)
         }
     }
@@ -517,7 +576,7 @@ class ExportBookService : BaseService() {
             1
         }
         flow {
-            appDb.bookChapterDao.getChapterList(book.bookUrl).forEach { chapter ->
+            chaptersForExport(book).forEach { chapter ->
                 emit(chapter)
             }
         }.mapAsync(threads) { chapter ->
@@ -597,7 +656,7 @@ class ExportBookService : BaseService() {
             EpubWriter().write(epubBook, bookOs)
         }
 
-        if (AppConfig.exportToWebDav) {
+        if (activeDownload == null && AppConfig.exportToWebDav) {
             // 导出到webdav
             AppWebDav.exportWebDav(bookDoc.uri, filename)
         }
@@ -758,7 +817,7 @@ class ExportBookService : BaseService() {
         }
         val sectionAppender = EpubSectionAppender(epubBook)
         flow {
-            appDb.bookChapterDao.getChapterList(book.bookUrl).forEach { chapter ->
+            chaptersForExport(book).forEach { chapter ->
                 emit(chapter)
             }
         }.mapAsyncIndexed(threads) { index, chapter ->

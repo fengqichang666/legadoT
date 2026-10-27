@@ -14,6 +14,7 @@ import io.legado.app.data.appDb
 import io.legado.app.help.book.update
 import io.legado.app.help.config.AppConfig
 import io.legado.app.model.CacheBook
+import io.legado.app.model.BookDownload
 import io.legado.app.model.webBook.WebBook
 import io.legado.app.ui.book.cache.CacheActivity
 import io.legado.app.utils.activityPendingIntent
@@ -81,7 +82,8 @@ class CacheBookService : BaseService() {
                 IntentAction.start -> addDownloadData(
                     intent.getStringExtra("bookUrl"),
                     intent.getIntExtra("start", 0),
-                    intent.getIntExtra("end", 0)
+                    intent.getIntExtra("end", 0),
+                    intent.getStringExtra("downloadId")
                 )
 
                 IntentAction.remove -> removeDownload(intent.getStringExtra("bookUrl"))
@@ -95,14 +97,20 @@ class CacheBookService : BaseService() {
         isRun = false
         cachePool.close()
         CacheBook.close()
+        BookDownload.cancelPhase(BookDownload.Phase.CACHING)
         super.onDestroy()
         postEvent(EventBus.UP_DOWNLOAD, "")
     }
 
-    private fun addDownloadData(bookUrl: String?, start: Int, end: Int) {
+    private fun addDownloadData(bookUrl: String?, start: Int, end: Int, downloadId: String? = null) {
         bookUrl ?: return
+        val request = BookDownload.get(bookUrl)?.takeIf { it.id == downloadId }
+        if (downloadId != null && request == null) return
         execute {
-            val cacheBook = CacheBook.getOrCreate(bookUrl) ?: return@execute
+            val cacheBook = CacheBook.getOrCreate(bookUrl) ?: run {
+                check(request == null) { "书籍或书源不存在" }
+                return@execute
+            }
             val chapterCount = appDb.bookChapterDao.getChapterCount(bookUrl)
             val book = cacheBook.book
             if (chapterCount == 0) {
@@ -113,8 +121,9 @@ class CacheBookService : BaseService() {
                         kotlin.runCatching {
                             WebBook.getBookInfoAwait(cacheBook.bookSource, book)
                         }.onFailure {
-                            removeDownload(bookUrl)
                             val msg = "《$name》目录为空且加载详情页失败\n${it.localizedMessage}"
+                            request?.let { BookDownload.finish(it, BookDownload.Outcome.FAILED, msg) }
+                            removeDownload(bookUrl)
                             AppLog.put(msg, it, true)
                             return@execute
                         }
@@ -124,8 +133,9 @@ class CacheBookService : BaseService() {
                             book.totalChapterNum = 0
                             book.update()
                         }
-                        removeDownload(bookUrl)
                         val msg = "《$name》目录为空且加载目录失败\n${it.localizedMessage}"
+                        request?.let { BookDownload.finish(it, BookDownload.Outcome.FAILED, msg) }
+                        removeDownload(bookUrl)
                         AppLog.put(msg, it, true)
                         return@execute
                     }.getOrNull()?.let { toc ->
@@ -139,9 +149,18 @@ class CacheBookService : BaseService() {
             } else {
                 min(end, book.lastChapterIndex)
             }
-            cacheBook.addDownload(start, end2, explicitTask = true)
+            request?.let {
+                val chapters = appDb.bookChapterDao.getChapterList(bookUrl)
+                check(chapters.any { chapter -> !chapter.isVolume }) { "目录为空，无法下载整本" }
+                it.chapters = chapters.map { chapter -> chapter.copy() }
+            }
+            cacheBook.addDownload(start, end2, explicitTask = true, downloadId = request?.id)
             notificationContent = CacheBook.downloadSummary
             upCacheBookNotification()
+        }.onError { error ->
+            AppLog.put("准备缓存失败", error)
+            request?.let { BookDownload.finish(it, BookDownload.Outcome.FAILED, error.localizedMessage ?: "准备下载失败") }
+            removeDownload(bookUrl)
         }.onFinally {
             if (downloadJob == null) {
                 download()

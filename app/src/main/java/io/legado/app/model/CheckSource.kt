@@ -1,6 +1,7 @@
 package io.legado.app.model
 
 import android.content.Context
+import com.google.gson.JsonElement
 import io.legado.app.R
 import io.legado.app.constant.IntentAction
 import io.legado.app.data.entities.BookSourcePart
@@ -8,9 +9,18 @@ import io.legado.app.help.CacheManager
 import io.legado.app.help.IntentData
 import io.legado.app.service.CheckSourceService
 import io.legado.app.utils.startService
+import io.legado.app.utils.toastOnUi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import splitties.init.appCtx
 
 object CheckSource {
+    data class Result(val id: String?, val completed: Boolean, val failures: Map<String, List<String>>,
+                      val definitions: Map<String, JsonElement>, val verificationRequired: Set<String>)
+    private val mutableResult = MutableStateFlow<Result?>(null)
+    val result = mutableResult.asStateFlow()
+    @Volatile var isRunning = false
+        private set
     var keyword = "我的"
 
     //校验设置
@@ -22,14 +32,34 @@ object CheckSource {
     var checkContent = CacheManager.get("checkContent")?.toBoolean() ?: true
     val summary get() = upSummary()
 
-    fun start(context: Context, sources: List<BookSourcePart>) {
+    @Synchronized
+    fun start(context: Context, sources: List<BookSourcePart>, id: String? = null): Boolean {
+        if (isRunning) {
+            context.toastOnUi("已有书源在校验,等完成后再试")
+            return false
+        }
+        isRunning = true
+        mutableResult.value = null
         val selectedIds = sources.map {
             it.bookSourceUrl
         }
         IntentData.put("checkSourceSelectedIds", selectedIds)
-        context.startService<CheckSourceService> {
-            action = IntentAction.start
+        try {
+            context.startService<CheckSourceService> {
+                action = IntentAction.start
+                putExtra("checkRunId", id)
+            }
+        } catch (e: Exception) {
+            isRunning = false
+            throw e
         }
+        return true
+    }
+
+    fun finish(id: String?, completed: Boolean, failures: Map<String, List<String>>,
+               definitions: Map<String, JsonElement>, verificationRequired: Set<String>) {
+        isRunning = false
+        mutableResult.value = Result(id, completed, failures, definitions, verificationRequired)
     }
 
     fun stop(context: Context) {

@@ -17,6 +17,7 @@ object NotificationId {
     const val CacheBookComplete = 109
     const val AudioCacheService = 110
     const val McpService = 111
+    const val BookDownloadComplete = 112
     const val AutoTaskBookUpdateBase = 12000
     const val AutoTaskNotifyBase = 13000
     const val Download = 10000

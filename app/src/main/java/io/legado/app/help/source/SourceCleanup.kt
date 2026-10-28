@@ -4,25 +4,50 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonElement
 import io.legado.app.data.entities.BookSource
 import java.net.URI
+import java.io.OutputStream
+import java.io.OutputStreamWriter
+import java.security.DigestOutputStream
+import java.security.MessageDigest
 import java.util.Locale
 
 /** 清理专用的比较规则，不改变书源导入和数据库的身份判定。 */
 object SourceCleanup {
     data class Snapshot(val source: BookSource, val state: Map<String, String?>) {
         val definition: JsonElement = gson.toJsonTree(source)
-        val key: JsonElement? = executionKey(source)?.apply {
-            add("runtimeState", gson.toJsonTree(state))
-        }
     }
 
-    data class Candidate(val snapshot: Snapshot, val reason: String)
+    data class Candidate(
+        val bookSourceUrl: String,
+        val bookSourceName: String,
+        val reason: String,
+        val snapshot: Snapshot? = null,
+        val definitionFingerprint: String? = null,
+        val executionFingerprint: String? = null,
+        val survivorUrl: String? = null
+    ) {
+        constructor(snapshot: Snapshot, reason: String) : this(
+            snapshot.source.bookSourceUrl, snapshot.source.bookSourceName, reason, snapshot
+        )
+    }
+
     data class Preview(val candidates: List<Candidate>, val kept: List<String>)
+
+    data class DuplicateSource(
+        val bookSourceUrl: String,
+        val bookSourceName: String,
+        val enabled: Boolean,
+        val lastUpdateTime: Long,
+        val customOrder: Int,
+        val definitionFingerprint: String,
+        val executionFingerprint: String
+    )
 
     private val gson = GsonBuilder().serializeNulls().create()
     private val managementFields = listOf(
         "bookSourceName", "bookSourceGroup", "bookSourceComment", "variableComment",
         "customOrder", "enabled", "enabledExplore", "lastUpdateTime", "respondTime", "weight"
     )
+    private val hexDigits = "0123456789abcdef"
 
     fun normalizedUrl(url: String): String? = runCatching {
         val uri = URI(url)
@@ -45,34 +70,122 @@ object SourceCleanup {
         }
     }.getOrNull()
 
-    private fun executionKey(source: BookSource) = normalizedUrl(source.bookSourceUrl)?.let { url ->
-        gson.toJsonTree(source).asJsonObject.apply {
-            managementFields.forEach { remove(it) }
-            addProperty("bookSourceUrl", url)
+    private fun executionKey(source: BookSource, state: Map<String, String?>): JsonElement? =
+        normalizedUrl(source.bookSourceUrl)?.let { url ->
+            gson.toJsonTree(source).asJsonObject.apply {
+                managementFields.forEach { remove(it) }
+                addProperty("bookSourceUrl", url)
+                add("runtimeState", gson.toJsonTree(state))
+            }
+        }
+
+    private fun fingerprint(value: JsonElement): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val sink = object : OutputStream() {
+            override fun write(b: Int) = Unit
+            override fun write(b: ByteArray, off: Int, len: Int) = Unit
+        }
+        OutputStreamWriter(DigestOutputStream(sink, digest), Charsets.UTF_8.name()).use { output ->
+            gson.toJson(value, output)
+        }
+        return buildString(64) {
+            digest.digest().forEach {
+                val byte = it.toInt() and 0xff
+                append(hexDigits[byte ushr 4])
+                append(hexDigits[byte and 0x0f])
+            }
         }
     }
 
-    fun duplicates(sources: List<Snapshot>, inUse: Set<String>): Preview {
-        val candidates = arrayListOf<Candidate>()
-        val kept = arrayListOf<String>()
-        val order = compareByDescending<Snapshot> { it.source.enabled }
-            .thenByDescending { it.source.lastUpdateTime }
-            .thenBy { it.source.customOrder }
-            .thenBy { it.source.bookSourceUrl }
-        sources.filter { it.key != null }.groupBy { it.key }.values.forEach { group ->
-            if (group.size < 2) return@forEach
-            val protected = group.filter { it.source.bookSourceUrl in inUse }
-            val survivors = protected.ifEmpty { listOf(group.minWith(order)) }
-            val survivorUrls = survivors.map { it.source.bookSourceUrl }.toSet()
-            survivors.forEach {
-                val reason = if (it.source.bookSourceUrl in inUse) "书架正在使用" else "同组优先保留"
-                kept.add("${it.source.bookSourceName}：$reason\n${it.source.bookSourceUrl}")
-            }
-            group.filterNot { it.source.bookSourceUrl in survivorUrls }.forEach {
-                candidates.add(Candidate(it, "同站且规则、用户变量和登录状态相同；保留 ${survivors.first().source.bookSourceName}"))
+    fun duplicateSource(source: BookSource, state: Map<String, String?>): DuplicateSource? {
+        if (normalizedUrl(source.bookSourceUrl) == null) return null
+        val definition = gson.toJsonTree(source)
+        val definitionFingerprint = fingerprint(definition)
+        val stateJson = gson.toJsonTree(state.toSortedMap())
+        val key = definition.asJsonObject.apply {
+            managementFields.forEach { remove(it) }
+            addProperty("bookSourceUrl", normalizedUrl(source.bookSourceUrl))
+            add("runtimeState", stateJson)
+        }
+        return DuplicateSource(
+            source.bookSourceUrl, source.bookSourceName, source.enabled, source.lastUpdateTime,
+            source.customOrder, definitionFingerprint, fingerprint(key)
+        )
+    }
+
+    fun sameExecution(a: BookSource, aState: Map<String, String?>, b: BookSource, bState: Map<String, String?>): Boolean {
+        val aKey = executionKey(a, aState) ?: return false
+        return aKey == executionKey(b, bState)
+    }
+
+    class DuplicateScanner(private val inUse: Set<String>) {
+        private class Group(first: DuplicateSource, inUse: Boolean) {
+            var count = 1
+            var best: DuplicateSource? = if (inUse) null else first
+            val inUseSources = arrayListOf<DuplicateSource>().apply { if (inUse) add(first) }
+            val candidates = arrayListOf<DuplicateSource>()
+
+            fun add(source: DuplicateSource, inUse: Boolean) {
+                count++
+                if (inUse) {
+                    if (inUseSources.isEmpty()) best?.let(candidates::add)
+                    best = null
+                    inUseSources.add(source)
+                } else if (inUseSources.isNotEmpty()) {
+                    candidates.add(source)
+                } else {
+                    val current = best!!
+                    if (SourceCleanup.preferred(source, current)) {
+                        candidates.add(current)
+                        best = source
+                    } else {
+                        candidates.add(source)
+                    }
+                }
             }
         }
-        return Preview(candidates, kept)
+
+        private val groups = LinkedHashMap<String, Group>()
+
+        fun add(source: DuplicateSource) {
+            val inUse = source.bookSourceUrl in inUse
+            val group = groups[source.executionFingerprint]
+            if (group == null) groups[source.executionFingerprint] = Group(source, inUse)
+            else group.add(source, inUse)
+        }
+
+        fun preview(): Preview {
+            val candidates = arrayListOf<Candidate>()
+            val kept = arrayListOf<String>()
+            groups.values.forEach { group ->
+                if (group.count < 2) return@forEach
+                val survivors = if (group.inUseSources.isNotEmpty()) {
+                    group.inUseSources.sortedWith(compareBy<DuplicateSource> { it.customOrder }.thenBy { it.bookSourceUrl })
+                } else listOf(group.best!!)
+                val survivor = survivors.first()
+                survivors.forEach {
+                    val reason = if (it.bookSourceUrl in inUse) "书架正在使用" else "同组优先保留"
+                    kept.add("${it.bookSourceName}：$reason\n${it.bookSourceUrl}")
+                }
+                group.candidates.forEach { candidate ->
+                    candidates.add(Candidate(
+                        candidate.bookSourceUrl, candidate.bookSourceName,
+                        "同站且规则、用户变量和登录状态相同；保留 ${survivor.bookSourceName}",
+                        definitionFingerprint = candidate.definitionFingerprint,
+                        executionFingerprint = candidate.executionFingerprint,
+                        survivorUrl = survivor.bookSourceUrl
+                    ))
+                }
+            }
+            return Preview(candidates, kept)
+        }
+    }
+
+    private fun preferred(a: DuplicateSource, b: DuplicateSource): Boolean = when {
+        a.enabled != b.enabled -> a.enabled
+        a.lastUpdateTime != b.lastUpdateTime -> a.lastUpdateTime > b.lastUpdateTime
+        a.customOrder != b.customOrder -> a.customOrder < b.customOrder
+        else -> a.bookSourceUrl < b.bookSourceUrl
     }
 
     fun invalid(sources: List<Snapshot>, inUse: Set<String>, completed: Boolean,

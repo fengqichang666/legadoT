@@ -11,6 +11,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.PopupMenu
 import androidx.appcompat.widget.SearchView
 import androidx.core.os.bundleOf
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -26,6 +27,7 @@ import io.legado.app.data.AppDatabase
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.BookSourcePart
 import io.legado.app.databinding.ActivityBookSourceBinding
+import io.legado.app.databinding.DialogCleanupPreviewBinding
 import io.legado.app.databinding.DialogEditTextBinding
 import io.legado.app.help.DirectLinkUpload
 import io.legado.app.help.ShibbolethShare
@@ -588,24 +590,41 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
     }
 
     private fun showCleanupPreview(preview: SourceCleanup.Preview,
-                                   checked: BooleanArray = BooleanArray(preview.candidates.size) { true }) {
+                                   checked: BooleanArray = BooleanArray(preview.candidates.size) { true },
+                                   page: Int = 0) {
         if (preview.candidates.isEmpty()) {
             alert("没有可删除的书源") {
-                setMessage(preview.kept.joinToString("\n").ifBlank { "未发现符合清理条件的书源" })
+                setMessage(if (preview.kept.isEmpty()) "未发现符合清理条件的书源" else "自动保留 ${preview.kept.size} 个书源")
+                if (preview.kept.isNotEmpty()) neutralButton("查看保留原因") {
+                    showCleanupKept(preview)
+                }
                 okButton()
             }
             return
         }
+        val binding = DialogCleanupPreviewBinding.inflate(layoutInflater)
+        var currentPage = page
+        val adapter = CleanupCandidateAdapter(preview.candidates, checked) {
+            binding.pageInfo.text = "第 ${currentPage + 1} / ${adapterPageCount(preview)} 页，已选 ${checked.count { it }} / ${checked.size} 个"
+        }
+        binding.candidateList.layoutManager = LinearLayoutManager(this)
+        binding.candidateList.adapter = adapter
+        adapter.showPage(page)
+        fun updatePage() {
+            currentPage = adapter.page
+            binding.pageInfo.text = "第 ${adapter.page + 1} / ${adapter.pageCount} 页，已选 ${checked.count { it }} / ${checked.size} 个"
+            binding.previousPage.isEnabled = adapter.page > 0
+            binding.nextPage.isEnabled = adapter.page + 1 < adapter.pageCount
+        }
+        binding.previousPage.setOnClickListener { adapter.showPage(adapter.page - 1); updatePage() }
+        binding.nextPage.setOnClickListener { adapter.showPage(adapter.page + 1); updatePage() }
+        binding.keptReasons.setOnClickListener {
+            val currentPage = adapter.page
+            showCleanupKept(preview, checked, currentPage)
+        }
+        updatePage()
         alert("清理预览（${checked.size} 个候选）") {
-            multiChoiceItems(preview.candidates.map {
-                "${it.snapshot.source.bookSourceName}\n${it.snapshot.source.bookSourceUrl}\n${it.reason}"
-            }.toTypedArray(), checked) { _, index, value -> checked[index] = value }
-            neutralButton("保留原因") {
-                alert("已保留的书源") {
-                    setMessage(preview.kept.joinToString("\n").ifBlank { "书架使用中的书源均自动保留" })
-                    okButton { showCleanupPreview(preview, checked) }
-                }
-            }
+            customView { binding.root }
             positiveButton(R.string.delete) {
                 val selected = preview.candidates.filterIndexed { index, _ -> checked[index] }
                 if (selected.isEmpty()) return@positiveButton
@@ -614,6 +633,29 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
                     positiveButton(R.string.delete) { cleanupViewModel.delete(selected) }
                     cancelButton()
                 }
+            }
+            cancelButton()
+        }
+    }
+
+    private fun adapterPageCount(preview: SourceCleanup.Preview) =
+        (preview.candidates.size + CleanupCandidateAdapter.PAGE_SIZE - 1) / CleanupCandidateAdapter.PAGE_SIZE
+
+    private fun showCleanupKept(preview: SourceCleanup.Preview,
+                                checked: BooleanArray? = null,
+                                previewPage: Int = 0,
+                                page: Int = 0) {
+        val pageSize = 40
+        val lastPage = (preview.kept.size - 1).coerceAtLeast(0) / pageSize
+        val reasons = preview.kept.drop(page * pageSize).take(pageSize)
+        alert("已保留的书源（${preview.kept.size} 个，第 ${page + 1} / ${lastPage + 1} 页）") {
+            setMessage(reasons.joinToString("\n").ifBlank { "书架使用中的书源均自动保留" })
+            if (page > 0) neutralButton("上一页") {
+                showCleanupKept(preview, checked, previewPage, page - 1)
+            }
+            positiveButton(if (page < lastPage) "下一页" else "完成") {
+                if (page < lastPage) showCleanupKept(preview, checked, previewPage, page + 1)
+                else if (checked != null) showCleanupPreview(preview, checked, previewPage)
             }
             cancelButton()
         }

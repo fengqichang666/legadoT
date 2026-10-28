@@ -6,7 +6,6 @@ import io.legado.app.base.BaseViewModel
 import io.legado.app.constant.AppLog
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.BookSource
-import io.legado.app.help.book.isNotShelf
 import io.legado.app.help.http.CookieManager
 import io.legado.app.help.source.SourceCleanup
 import io.legado.app.help.source.SourceHelp
@@ -21,10 +20,9 @@ class BookSourceCleanupViewModel(application: Application) : BaseViewModel(appli
     val message = MutableLiveData<String?>()
     private var duplicateScan = false
 
-    private fun inUse() = appDb.bookDao.all.filterNot { it.isNotShelf }.map { it.origin }.toSet()
+    private fun inUse() = appDb.bookDao.allShelfOrigins().toSet()
 
-    private fun snapshot(source: BookSource): SourceCleanup.Snapshot {
-        val url = source.bookSourceUrl
+    private fun runtimeState(url: String): Map<String, String?> {
         val state = appDb.cacheDao.getSourceVariables(url, System.currentTimeMillis()).associate {
             val key = if (it.key.startsWith("v_${url}_")) {
                 "v_" + it.key.removePrefix("v_${url}_")
@@ -37,7 +35,26 @@ class BookSourceCleanupViewModel(application: Application) : BaseViewModel(appli
             state["cookie"] = CookieManager.getCookieNoSession(url)
             CookieManager.getSessionCookie(NetworkUtils.getSubDomain(url))?.let { state["sessionCookie"] = it }
         }
-        return SourceCleanup.Snapshot(source, state)
+        return state
+    }
+
+    private fun snapshot(source: BookSource) = SourceCleanup.Snapshot(source, runtimeState(source.bookSourceUrl))
+
+    private fun duplicateSource(source: BookSource) =
+        if (SourceCleanup.normalizedUrl(source.bookSourceUrl) == null) null
+        else SourceCleanup.duplicateSource(source, runtimeState(source.bookSourceUrl))
+
+    private fun scanDuplicates(protected: Set<String>): SourceCleanup.Preview {
+        val scanner = SourceCleanup.DuplicateScanner(protected)
+        var afterUrl: String? = null
+        while (true) {
+            val page = appDb.bookSourceDao.cleanupPage(afterUrl, CLEANUP_PAGE_SIZE)
+            if (page.isEmpty()) break
+            page.forEach { source -> duplicateSource(source)?.let(scanner::add) }
+            afterUrl = page.last().bookSourceUrl
+            if (page.size < CLEANUP_PAGE_SIZE) break
+        }
+        return scanner.preview()
     }
 
     fun scan(duplicates: Boolean) {
@@ -47,7 +64,7 @@ class BookSourceCleanupViewModel(application: Application) : BaseViewModel(appli
         execute {
             val protected = inUse()
             if (duplicates) {
-                SourceCleanup.duplicates(appDb.bookSourceDao.all.map(::snapshot), protected)
+                scanDuplicates(protected)
             } else {
                 val sources = appDb.bookSourceDao.allPart.filterNot { it.bookSourceUrl in protected }
                 if (sources.isEmpty()) {
@@ -82,24 +99,48 @@ class BookSourceCleanupViewModel(application: Application) : BaseViewModel(appli
             // 预览后书籍可能入架、书源可能被编辑；删除前重新判定并在同一事务内执行。
             appDb.runInTransaction {
                 val protected = inUse()
-                val current = appDb.bookSourceDao.all.map(::snapshot)
-                val duplicates = if (duplicateScan) {
-                    SourceCleanup.duplicates(current, protected).candidates
-                        .map { it.snapshot.source.bookSourceUrl }.toSet()
-                } else null
-                val byUrl = current.associateBy { it.source.bookSourceUrl }
-                val safe = selected.mapNotNull { candidate ->
-                    val old = candidate.snapshot
-                    val url = old.source.bookSourceUrl
-                    val now = byUrl[url] ?: return@mapNotNull null
-                    if (url in protected || (duplicates != null && url !in duplicates)) return@mapNotNull null
-                    if (old.definition != now.definition || old.state != now.state) {
-                        return@mapNotNull null
+                if (duplicateScan) {
+                    val current = scanDuplicates(protected).candidates.associateBy { it.bookSourceUrl }
+                    val safeUrls = selected.mapNotNull { old ->
+                        val now = current[old.bookSourceUrl] ?: return@mapNotNull null
+                        if (old.bookSourceUrl in protected ||
+                            old.definitionFingerprint != now.definitionFingerprint ||
+                            old.executionFingerprint != now.executionFingerprint) return@mapNotNull null
+
+                        val source = appDb.bookSourceDao.getBookSource(old.bookSourceUrl)
+                            ?: return@mapNotNull null
+                        val survivorUrl = now.survivorUrl ?: return@mapNotNull null
+                        val survivor = appDb.bookSourceDao.getBookSource(survivorUrl)
+                            ?: return@mapNotNull null
+                        val state = runtimeState(old.bookSourceUrl)
+                        val survivorState = runtimeState(survivorUrl)
+                        val fresh = duplicateSource(source) ?: return@mapNotNull null
+                        if (fresh.definitionFingerprint != old.definitionFingerprint ||
+                            fresh.executionFingerprint != old.executionFingerprint ||
+                            !SourceCleanup.sameExecution(source, state, survivor, survivorState)) {
+                            return@mapNotNull null
+                        }
+                        old.bookSourceUrl
                     }
-                    now.source
+                    if (safeUrls.isNotEmpty()) SourceHelp.deleteBookSourcesByUrl(safeUrls)
+                    deleted = safeUrls.size
                 }
-                SourceHelp.deleteBookSources(safe)
-                deleted = safe.size
+                if (!duplicateScan) {
+                    val current = appDb.bookSourceDao.all.map(::snapshot)
+                    val byUrl = current.associateBy { it.source.bookSourceUrl }
+                    val safe = selected.mapNotNull { candidate ->
+                        val old = candidate.snapshot ?: return@mapNotNull null
+                        val url = old.source.bookSourceUrl
+                        val now = byUrl[url] ?: return@mapNotNull null
+                        if (url in protected) return@mapNotNull null
+                        if (old.definition != now.definition || old.state != now.state) {
+                            return@mapNotNull null
+                        }
+                        now.source
+                    }
+                    SourceHelp.deleteBookSources(safe)
+                    deleted = safe.size
+                }
             }
             "已删除 $deleted 个书源，跳过 ${selected.size - deleted} 个已变化或正在使用的书源"
         }.onSuccess {
@@ -110,5 +151,9 @@ class BookSourceCleanupViewModel(application: Application) : BaseViewModel(appli
         }.onFinally {
             busy.value = false
         }
+    }
+
+    private companion object {
+        const val CLEANUP_PAGE_SIZE = 32
     }
 }

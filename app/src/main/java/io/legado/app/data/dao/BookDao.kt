@@ -112,6 +112,9 @@ interface BookDao {
     @get:Query("SELECT * FROM books")
     val all: List<Book>
 
+    @Query("SELECT DISTINCT origin FROM books WHERE type & ${BookType.notShelf} = 0")
+    fun allShelfOrigins(): List<String>
+
     @get:Query("SELECT * FROM books ORDER BY `order`")
     val allByOrder: List<Book>
 

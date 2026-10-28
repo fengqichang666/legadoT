@@ -176,6 +176,9 @@ interface BookSourceDao {
     @get:Query("select * from book_sources order by customOrder asc")
     val all: List<BookSource>
 
+    @Query("select * from book_sources where :afterUrl is null or bookSourceUrl > :afterUrl order by bookSourceUrl limit :limit")
+    fun cleanupPage(afterUrl: String?, limit: Int): List<BookSource>
+
     @get:Query("select * from book_sources_part order by customOrder asc")
     val allPart: List<BookSourcePart>
 

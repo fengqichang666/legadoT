@@ -5,7 +5,10 @@ import android.view.MotionEvent
 import android.view.VelocityTracker
 import io.legado.app.data.entities.Book
 import io.legado.app.help.book.isImage
+import io.legado.app.help.config.AppConfig
+import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
+import io.legado.app.service.BaseReadAloudService
 import io.legado.app.ui.book.read.page.ReadView
 import io.legado.app.ui.book.read.page.provider.ChapterProvider
 
@@ -20,6 +23,9 @@ class ScrollPageDelegate(readView: ReadView) : PageDelegate(readView) {
 
     var noAnim: Boolean = false
 
+    var isScrollingForReadAloud: Boolean = false
+        private set
+
     override fun onAnimStart(animationSpeed: Int) {
         readView.onScrollAnimStart()
         //惯性滚动
@@ -30,6 +36,8 @@ class ScrollPageDelegate(readView: ReadView) : PageDelegate(readView) {
     }
 
     override fun onAnimStop() {
+        isScrollingForReadAloud = false
+        readView.readAloudFromVisiblePage()
         readView.onScrollAnimStop()
     }
 
@@ -64,7 +72,26 @@ class ScrollPageDelegate(readView: ReadView) : PageDelegate(readView) {
     }
 
     override fun onScroll() {
-        curPage.scroll((touchY - lastY).toInt())
+        scroll((touchY - lastY).toInt())
+    }
+
+    private fun scroll(offset: Int) {
+        if (offset == 0) return
+        // 滚动和惯性结束后统一起读，避免拖动过程中反复重启朗读。
+        isScrollingForReadAloud = true
+        val position = if (BaseReadAloudService.isRun && AppConfig.readAloudFollowPage) {
+            readView.getReadAloudPos()
+        } else null
+        curPage.scroll(offset)
+        val currentPosition = readView.getReadAloudPos()
+        if (BaseReadAloudService.isRun && AppConfig.readAloudFollowPage &&
+            BaseReadAloudService.followReadAloudPosition &&
+            (position?.first != currentPosition?.first ||
+                position?.second?.chapterPosition != currentPosition?.second?.chapterPosition ||
+                position?.second?.pagePosition != currentPosition?.second?.pagePosition)
+        ) {
+            ReadAloud.detachReadAloudFollow(readFromVisiblePage = true)
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -110,6 +137,7 @@ class ScrollPageDelegate(readView: ReadView) : PageDelegate(readView) {
     }
 
     override fun abortAnim() {
+        isScrollingForReadAloud = false
         readView.onScrollAnimStop()
         isStarted = false
         isMoved = false
@@ -128,7 +156,8 @@ class ScrollPageDelegate(readView: ReadView) : PageDelegate(readView) {
             return
         }
         if (noAnim) {
-            curPage.scroll(calcNextPageOffset())
+            scroll(calcNextPageOffset())
+            onAnimStop()
             return
         }
         readView.setStartPoint(0f, 0f, false)
@@ -141,7 +170,8 @@ class ScrollPageDelegate(readView: ReadView) : PageDelegate(readView) {
             return
         }
         if (noAnim) {
-            curPage.scroll(calcPrevPageOffset())
+            scroll(calcPrevPageOffset())
+            onAnimStop()
             return
         }
         readView.setStartPoint(0f, 0f, false)

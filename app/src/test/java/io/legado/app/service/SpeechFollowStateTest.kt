@@ -3,9 +3,57 @@ package io.legado.app.service
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SpeechFollowStateTest {
+
+    @Test
+    fun followingManualPageWaitsForNewSpeechSessionBeforeApplyingOldProgress() {
+        val state = SpeechFollowState()
+
+        state.detachForManualNavigation(readFromVisiblePage = true)
+
+        assertTrue(state.readFromVisiblePageAfterNavigation)
+        assertFalse(state.shouldApplySpeechProgressToVisibleReader(isSpeechPlaying = true))
+
+        state.restoreForNewSpeechSession()
+
+        assertFalse(state.readFromVisiblePageAfterNavigation)
+        assertTrue(state.shouldApplySpeechProgressToVisibleReader(isSpeechPlaying = true))
+    }
+
+    @Test
+    fun manualNavigationWithFollowDisabledKeepsOriginalSpeakingPosition() {
+        val state = SpeechFollowState()
+
+        state.detachForManualNavigation(readFromVisiblePage = false)
+
+        assertFalse(state.readFromVisiblePageAfterNavigation)
+        assertFalse(state.shouldSyncSpeechNavigation())
+    }
+
+    @Test
+    fun browsingWithoutFollowCancelsPendingPageRestart() {
+        val state = SpeechFollowState()
+        state.detachForManualNavigation(readFromVisiblePage = true)
+
+        state.detachForManualNavigation()
+
+        assertFalse(state.readFromVisiblePageAfterNavigation)
+        assertFalse(state.followReadAloudPosition)
+    }
+
+    @Test
+    fun clearingPendingPageRestartDoesNotRestoreSpeechFollow() {
+        val state = SpeechFollowState()
+        state.detachForManualNavigation(readFromVisiblePage = true)
+
+        state.clearPendingVisiblePageReadAloud()
+
+        assertFalse(state.readFromVisiblePageAfterNavigation)
+        assertFalse(state.shouldSyncSpeechNavigation())
+    }
 
     @Test
     fun detachedFollowDoesNotApplySpeechProgressToVisibleReader() {

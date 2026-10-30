@@ -44,6 +44,12 @@
             android:key="readAloudByPage" />
 
         <io.legado.app.lib.prefs.SwitchPreference
+            android:defaultValue="true"
+            android:key="readAloudFollowPage"
+            android:title="@string/read_aloud_follow_page"
+            android:summary="@string/read_aloud_follow_page_summary" />
+
+        <io.legado.app.lib.prefs.SwitchPreference
             android:defaultValue="false"
             android:title="@string/stream_read_aloud_audio"
             android:summary="@string/stream_read_aloud_audio_summary"

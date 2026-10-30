@@ -11,12 +11,22 @@ class SpeechFollowState {
     var followReadAloudPosition: Boolean = true
         private set
 
-    fun detachForManualNavigation() {
+    // 等待翻页或章节加载完成后再起读，期间旧朗读进度不能拉回显示页。
+    var readFromVisiblePageAfterNavigation: Boolean = false
+        private set
+
+    fun detachForManualNavigation(readFromVisiblePage: Boolean = false) {
         followReadAloudPosition = false
+        readFromVisiblePageAfterNavigation = readFromVisiblePage
     }
 
     fun restoreForNewSpeechSession() {
         followReadAloudPosition = true
+        readFromVisiblePageAfterNavigation = false
+    }
+
+    fun clearPendingVisiblePageReadAloud() {
+        readFromVisiblePageAfterNavigation = false
     }
 
     fun shouldSyncSpeechNavigation(): Boolean {

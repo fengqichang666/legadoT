@@ -113,6 +113,12 @@ class ReadAloudConfigDialog : BasePrefDialogFragment() {
                     }
                 }
 
+                PreferKey.readAloudFollowPage -> {
+                    if (!AppConfig.readAloudFollowPage) {
+                        BaseReadAloudService.clearPendingVisiblePageReadAloud()
+                    }
+                }
+
                 PreferKey.ignoreAudioFocus -> {
                     findPreference<SwitchPreference>(PreferKey.pauseReadAloudWhilePhoneCalls)?.let {
                         it.isEnabled = AppConfig.ignoreAudioFocus

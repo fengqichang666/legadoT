@@ -684,6 +684,40 @@ class ReadView(context: Context, attrs: AttributeSet) :
         return curPage.getReadAloudPos()
     }
 
+    fun readAloudFromVisiblePage() {
+        if (!BaseReadAloudService.isRun || !AppConfig.readAloudFollowPage ||
+            !BaseReadAloudService.readFromVisiblePageAfterNavigation
+        ) return
+        if ((pageDelegate as? ScrollPageDelegate)?.isScrollingForReadAloud == true) return
+
+        val play = !BaseReadAloudService.pause
+        if (!isScroll) {
+            BaseReadAloudService.clearPendingVisiblePageReadAloud()
+            ReadBook.readAloud(play)
+            return
+        }
+        val position = getReadAloudPos()
+        if (position == null) {
+            BaseReadAloudService.clearPendingVisiblePageReadAloud()
+            return
+        }
+        BaseReadAloudService.clearPendingVisiblePageReadAloud()
+        val (chapterIndex, line) = position
+        if (ReadBook.durChapterIndex != chapterIndex) {
+            ReadBook.openChapter(chapterIndex, line.chapterPosition, false) {
+                if (BaseReadAloudService.isRun && AppConfig.readAloudFollowPage &&
+                    ReadBook.durChapterIndex == chapterIndex &&
+                    getReadAloudPos()?.second?.chapterPosition == line.chapterPosition
+                ) {
+                    ReadBook.readAloud(!BaseReadAloudService.pause, startPos = line.pagePosition)
+                }
+            }
+        } else {
+            ReadBook.durChapterPos = line.chapterPosition
+            ReadBook.readAloud(play, startPos = line.pagePosition)
+        }
+    }
+
     fun invalidateTextPage() {
         if (!AppConfig.optimizeRender) {
             return

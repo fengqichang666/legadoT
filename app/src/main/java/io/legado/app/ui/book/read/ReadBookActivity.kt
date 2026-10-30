@@ -17,7 +17,6 @@ import android.view.View
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.addCallback
-import androidx.activity.viewModels
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.net.toUri
@@ -59,7 +58,6 @@ import io.legado.app.help.book.isImage
 import io.legado.app.help.book.isLocal
 import io.legado.app.help.book.isLocalTxt
 import io.legado.app.help.book.isMobi
-import io.legado.app.help.book.isWebFile
 import io.legado.app.help.book.removeType
 import io.legado.app.help.book.update
 import io.legado.app.help.config.AppConfig
@@ -80,7 +78,6 @@ import io.legado.app.lib.theme.bottomBackground
 import io.legado.app.lib.theme.getPrimaryTextColor
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
-import io.legado.app.model.BookDownload
 import io.legado.app.model.SourceCallBack
 import io.legado.app.model.analyzeRule.AnalyzeByJSonPath
 import io.legado.app.model.jsSource.JsSourceReview
@@ -98,8 +95,6 @@ import io.legado.app.ui.book.bookmark.BookmarkDialog
 import io.legado.app.ui.book.changesource.ChangeBookSourceDialog
 import io.legado.app.ui.book.changesource.ChangeChapterSourceDialog
 import io.legado.app.ui.book.info.BookInfoActivity
-import io.legado.app.ui.book.info.BookInfoViewModel
-import io.legado.app.ui.book.info.BookDownloadDialog
 import io.legado.app.ui.book.read.config.AutoReadDialog
 import io.legado.app.ui.book.read.config.MoreConfigDialog
 import io.legado.app.ui.book.read.config.ReadAloudDialog
@@ -289,8 +284,6 @@ class ReadBookActivity : BaseReadBookActivity(),
                 ReadBook.loadOrUpContent()
             }
         }
-    private val wholeBookDownloadModel by viewModels<BookInfoViewModel>()
-    private val wholeBookDownload = BookDownloadDialog(this) { wholeBookDownloadModel }
 
     private val selectImageDir = registerForActivityResult(HandleFileContract()) {
         it.uri?.let { uri ->
@@ -576,10 +569,6 @@ class ReadBookActivity : BaseReadBookActivity(),
                 }
             }
         }
-        menu.findItem(R.id.menu_download_whole_book)?.apply {
-            isVisible = onLine && !book.isImage && !book.isWebFile
-            isEnabled = wholeBookDownloadModel.downloadStarting.value != true && !BookDownload.isRunning(book.bookUrl)
-        }
         lifecycleScope.launch {
             val show = ReadBook.inBookshelf && withContext(IO) {
                 AppWebDav.isOk
@@ -684,7 +673,6 @@ class ReadBookActivity : BaseReadBookActivity(),
             R.id.menu_refresh_all -> refreshAllChapters()
 
             R.id.menu_download -> showDownloadDialog()
-            R.id.menu_download_whole_book -> showWholeBookDownload()
             R.id.menu_add_bookmark -> addBookmark()
             R.id.menu_highlight_rule -> startActivity<HighlightRuleActivity>()
             R.id.menu_simulated_reading -> showSimulatedReading()
@@ -1431,6 +1419,12 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
     }
 
+    override fun readAloudFromVisiblePage() {
+        runOnUiThread {
+            binding.readView.readAloudFromVisiblePage()
+        }
+    }
+
     /**
      * 更新进度条位置
      */
@@ -1566,16 +1560,6 @@ class ReadBookActivity : BaseReadBookActivity(),
                 putExtra("sourceUrl", it.bookSourceUrl)
             }
         }
-    }
-
-    private fun showWholeBookDownload() {
-        val book = ReadBook.book ?: return
-        if (book.isLocal || book.isImage || book.isWebFile) return
-        if (wholeBookDownloadModel.downloadStarting.value == true || BookDownload.isRunning(book.bookUrl)) return
-        wholeBookDownloadModel.bookData.value = book
-        wholeBookDownloadModel.chapterListData.value = null
-        wholeBookDownloadModel.inBookshelf = ReadBook.inBookshelf
-        wholeBookDownload.show()
     }
 
     override fun openBookInfoActivity() {
@@ -3082,8 +3066,6 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     override fun observeLiveBus() = binding.run {
-        wholeBookDownloadModel.downloadStarting.observe(this@ReadBookActivity) { upMenu() }
-        observeEvent<String>(EventBus.BOOK_DOWNLOAD) { upMenu() }
         observeEvent<String>(EventBus.TIME_CHANGED) { readView.upTime() }
         observeEvent<Int>(EventBus.BATTERY_CHANGED) { readView.upBattery(it) }
         observeEvent<String>(EventBus.REFRESH_REVIEW_SUMMARY) {

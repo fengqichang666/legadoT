@@ -121,8 +121,12 @@ abstract class BaseReadAloudService : BaseService(),
             get() = speechFollowState.followReadAloudPosition
 
         @JvmStatic
-        fun detachReadAloudFollow() {
-            speechFollowState.detachForManualNavigation()
+        val readFromVisiblePageAfterNavigation: Boolean
+            get() = speechFollowState.readFromVisiblePageAfterNavigation
+
+        @JvmStatic
+        fun detachReadAloudFollow(readFromVisiblePage: Boolean = false) {
+            speechFollowState.detachForManualNavigation(readFromVisiblePage)
             postEvent(EventBus.READ_ALOUD_FOLLOW, speechFollowState.followReadAloudPosition)
         }
 
@@ -130,6 +134,11 @@ abstract class BaseReadAloudService : BaseService(),
         fun restoreReadAloudFollow() {
             speechFollowState.restoreForNewSpeechSession()
             postEvent(EventBus.READ_ALOUD_FOLLOW, speechFollowState.followReadAloudPosition)
+        }
+
+        @JvmStatic
+        fun clearPendingVisiblePageReadAloud() {
+            speechFollowState.clearPendingVisiblePageReadAloud()
         }
 
         @JvmStatic

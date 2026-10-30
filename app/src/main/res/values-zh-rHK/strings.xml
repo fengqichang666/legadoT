@@ -581,6 +581,8 @@
     <string name="timer_m">%d 分鐘</string>
     <string name="brightness_auto">自動亮度 %s</string>
     <string name="read_aloud_by_page">按頁朗讀</string>
+    <string name="read_aloud_follow_page">朗讀跟隨手動翻頁</string>
+    <string name="read_aloud_follow_page_summary">開啟後，手動翻頁從目前頁面開始朗讀；關閉後繼續原來的朗讀位置</string>
     <string name="speak_engine">朗讀引擎</string>
     <string name="bg_image">背景圖片</string>
     <string name="bg_color">背景顏色</string>

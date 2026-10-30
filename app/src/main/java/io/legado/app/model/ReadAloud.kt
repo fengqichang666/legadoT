@@ -37,8 +37,8 @@ object ReadAloud {
     val readAloudChapterStart: Int
         get() = BaseReadAloudService.readAloudChapterStart
 
-    fun detachReadAloudFollow() {
-        BaseReadAloudService.detachReadAloudFollow()
+    fun detachReadAloudFollow(readFromVisiblePage: Boolean = false) {
+        BaseReadAloudService.detachReadAloudFollow(readFromVisiblePage)
     }
 
     fun restoreReadAloudFollow() {

@@ -840,6 +840,8 @@ Placeholders:
     <string name="timer_m">%d min</string>
     <string name="brightness_auto">Auto-Brightness %s</string>
     <string name="read_aloud_by_page">Speak by pages</string>
+    <string name="read_aloud_follow_page">Follow manual page turns</string>
+    <string name="read_aloud_follow_page_summary">Read from the current page after turning pages manually. Turn off to keep the original speaking position.</string>
     <string name="speak_engine">Speak Engine</string>
     <string name="bg_image">Background images</string>
     <string name="bg_color">Background color</string>

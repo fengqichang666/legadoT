@@ -456,7 +456,7 @@ object ReadBook : CoroutineScope by MainScope() {
 
     fun moveToNextPage(syncReadAloudFollow: Boolean = false): Boolean {
         if (BaseReadAloudService.isRun && !syncReadAloudFollow) {
-            ReadAloud.detachReadAloudFollow()
+            ReadAloud.detachReadAloudFollow(AppConfig.readAloudFollowPage)
         }
         if (syncReadAloudFollow && !BaseReadAloudService.shouldSyncSpeechNavigation()) {
             return false
@@ -478,7 +478,7 @@ object ReadBook : CoroutineScope by MainScope() {
 
     fun moveToPrevPage(syncReadAloudFollow: Boolean = false): Boolean {
         if (BaseReadAloudService.isRun && !syncReadAloudFollow) {
-            ReadAloud.detachReadAloudFollow()
+            ReadAloud.detachReadAloudFollow(AppConfig.readAloudFollowPage)
         }
         if (syncReadAloudFollow && !BaseReadAloudService.shouldSyncSpeechNavigation()) {
             return false
@@ -502,7 +502,7 @@ object ReadBook : CoroutineScope by MainScope() {
         syncReadAloudFollow: Boolean = false
     ): Boolean {
         if (BaseReadAloudService.isRun && !syncReadAloudFollow) {
-            ReadAloud.detachReadAloudFollow()
+            ReadAloud.detachReadAloudFollow(AppConfig.readAloudFollowPage)
         }
         if (syncReadAloudFollow && !BaseReadAloudService.shouldSyncSpeechNavigation()) {
             return false
@@ -540,7 +540,7 @@ object ReadBook : CoroutineScope by MainScope() {
         syncReadAloudFollow: Boolean = false
     ): Boolean {
         if (BaseReadAloudService.isRun && !syncReadAloudFollow) {
-            ReadAloud.detachReadAloudFollow()
+            ReadAloud.detachReadAloudFollow(AppConfig.readAloudFollowPage)
         }
         if (syncReadAloudFollow && !BaseReadAloudService.shouldSyncSpeechNavigation()) {
             return false
@@ -579,7 +579,7 @@ object ReadBook : CoroutineScope by MainScope() {
         syncReadAloudFollow: Boolean = false
     ): Boolean {
         if (BaseReadAloudService.isRun && !syncReadAloudFollow) {
-            ReadAloud.detachReadAloudFollow()
+            ReadAloud.detachReadAloudFollow(AppConfig.readAloudFollowPage)
         }
         if (syncReadAloudFollow && !BaseReadAloudService.shouldSyncSpeechNavigation()) {
             return false
@@ -609,7 +609,7 @@ object ReadBook : CoroutineScope by MainScope() {
 
     fun skipToPage(index: Int, success: (() -> Unit)? = null) {
         if (BaseReadAloudService.isRun) {
-            ReadAloud.detachReadAloudFollow()
+            ReadAloud.detachReadAloudFollow(AppConfig.readAloudFollowPage)
         }
         durChapterPos = curTextChapter?.getReadLength(index) ?: index
         callBack?.upContent {
@@ -621,7 +621,7 @@ object ReadBook : CoroutineScope by MainScope() {
 
     fun setPageIndex(index: Int, syncReadAloudFollow: Boolean = false) {
         if (BaseReadAloudService.isRun && !syncReadAloudFollow) {
-            ReadAloud.detachReadAloudFollow()
+            ReadAloud.detachReadAloudFollow(AppConfig.readAloudFollowPage)
         }
         if (syncReadAloudFollow && !BaseReadAloudService.shouldSyncSpeechNavigation()) {
             return
@@ -678,7 +678,9 @@ object ReadBook : CoroutineScope by MainScope() {
         curTextChapter?.let {
             if (BaseReadAloudService.isRun && it.isCompleted) {
                 if (!syncReadAloudFollow) {
-                    ReadAloud.detachReadAloudFollow()
+                    if (AppConfig.readAloudFollowPage && BaseReadAloudService.readFromVisiblePageAfterNavigation) {
+                        callBack?.readAloudFromVisiblePage()
+                    }
                     return@let
                 }
                 val scrollPageAnim = pageAnim() == 3
@@ -1262,6 +1264,8 @@ object ReadBook : CoroutineScope by MainScope() {
         )
 
         fun pageChanged()
+
+        fun readAloudFromVisiblePage()
 
         fun contentLoadFinish()
 

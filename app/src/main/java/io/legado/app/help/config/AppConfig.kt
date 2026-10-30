@@ -272,6 +272,9 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
             }
         }
 
+    val readAloudFollowPage: Boolean
+        get() = appCtx.getPrefBoolean(PreferKey.readAloudFollowPage, true)
+
     var ttsFlowSys: Boolean
         get() = appCtx.getPrefBoolean(PreferKey.ttsFollowSys, true)
         set(value) {

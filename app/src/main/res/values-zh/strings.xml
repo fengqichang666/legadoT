@@ -789,6 +789,8 @@ Cron 使用 5 个字段：**分 时 日 月 周**
     <string name="timer_m">%d 分钟</string>
     <string name="brightness_auto">自动亮度 %s</string>
     <string name="read_aloud_by_page">按页朗读</string>
+    <string name="read_aloud_follow_page">朗读跟随手动翻页</string>
+    <string name="read_aloud_follow_page_summary">开启后，手动翻页从当前页开始朗读；关闭后继续原来的朗读位置</string>
     <string name="speak_engine">朗读引擎</string>
     <string name="bg_image">背景图片</string>
     <string name="bg_color">背景颜色</string>
